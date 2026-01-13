@@ -1,0 +1,33 @@
+[meta]
+name = "External Symbol Relocation"
+description = "Test dynamic relocation table for external symbol references"
+score = 6
+
+[[run]]
+name = "Compile library source"
+command = "${root_dir}/cc"
+args = ["${test_dir}/external.c", "-o", "${build_dir}/external.o", "-g", "-Os"]
+[run.check]
+files = ["${build_dir}/external.fo"]
+return_code = 0
+
+[[run]]
+name = "Link shared library (with unresolved externals)"
+command = "${root_dir}/ld"
+args = [
+    "-shared",
+    "${build_dir}/external.fo",
+    "-o",
+    "${build_dir}/libexternal.so",
+]
+[run.check]
+files = ["${build_dir}/libexternal.so"]
+return_code = 0
+
+[[run]]
+name = "Verify dynamic relocation table"
+command = "echo"
+args = ["verifying"]
+score = 6
+[run.check]
+special_judge = "judge.py"

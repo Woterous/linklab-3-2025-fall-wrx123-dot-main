@@ -1,0 +1,73 @@
+[meta]
+name = "Static Linking Test"
+description = "Test linking with static archives"
+score = 10
+
+[[run]]
+name = "Compile library"
+command = "${root_dir}/cc"
+args = [
+    "${test_dir}/lib.c",
+    "-o",
+    "${build_dir}/lib.o",
+    "-I${common_dir}",
+    "-g",
+    "-Os",
+]
+
+[run.check]
+files = ["${build_dir}/lib.fo"]
+return_code = 0
+
+[[run]]
+name = "Create archive"
+command = "${root_dir}/ar"
+args = [
+    "${build_dir}/lib.fa",
+    "${build_dir}/lib.fo",
+]
+
+[run.check]
+files = ["${build_dir}/lib.fa"]
+return_code = 0
+
+[[run]]
+name = "Compile main"
+command = "${root_dir}/cc"
+args = [
+    "${test_dir}/main.c",
+    "-o",
+    "${build_dir}/main.o",
+    "-I${common_dir}",
+    "-g",
+    "-Os",
+]
+
+[run.check]
+files = ["${build_dir}/main.fo"]
+return_code = 0
+
+[[run]]
+name = "Link program"
+command = "${root_dir}/ld"
+args = [
+    "${build_dir}/main.fo",
+    "${build_dir}/lib.fa",
+    "${common_dir}/minilibc.fo",
+    "-o",
+    "${build_dir}/program",
+]
+
+[run.check]
+files = ["${build_dir}/program"]
+return_code = 0
+
+[[run]]
+name = "Execute program"
+command = "${root_dir}/exec"
+args = ["${build_dir}/program"]
+debug_step = "Link program"
+score = 10
+
+[run.check]
+return_code = 3

@@ -1,0 +1,74 @@
+[meta]
+name = "BSS Section Linking Test"
+description = "Test proper linking of .bss sections with uninitialized global variables, static variables, and large arrays"
+score = 10.0
+
+[[run]]
+name = "Compile foo.c"
+command = "${root_dir}/cc"
+args = [
+    "${test_dir}/foo.c",
+    "-o",
+    "${build_dir}/foo.o",
+    "-I${common_dir}",
+    "-Os",
+]
+
+[run.check]
+return_code = 0
+files = ["${build_dir}/foo.fo"]
+
+[[run]]
+name = "Compile bar.c"
+command = "${root_dir}/cc"
+args = [
+    "${test_dir}/bar.c",
+    "-o",
+    "${build_dir}/bar.o",
+    "-I${common_dir}",
+    "-Os",
+]
+
+[run.check]
+return_code = 0
+files = ["${build_dir}/bar.fo"]
+
+[[run]]
+name = "Compile main.c"
+command = "${root_dir}/cc"
+args = [
+    "${test_dir}/main.c",
+    "-o",
+    "${build_dir}/main.o",
+    "-I${common_dir}",
+    "-Os",
+]
+
+[run.check]
+return_code = 0
+files = ["${build_dir}/main.fo"]
+
+[[run]]
+name = "Link program"
+command = "${root_dir}/ld"
+args = [
+    "${build_dir}/main.fo",
+    "${build_dir}/foo.fo",
+    "${build_dir}/bar.fo",
+    "${common_dir}/minilibc.fo",
+    "-o",
+    "${build_dir}/program",
+]
+
+[run.check]
+return_code = 0
+files = ["${build_dir}/program"]
+
+[[run]]
+name = "Run program"
+command = "${root_dir}/exec"
+args = ["${build_dir}/program"]
+debug_step = "Link program"
+
+[run.check]
+stdout = "ans.out"
