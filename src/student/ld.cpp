@@ -2,6 +2,7 @@
 #include <cstdint>
 #include <map>
 #include <stdexcept>
+#include <unordered_set>
 #include <vector>
 #include <string>
 #include <algorithm>
@@ -53,6 +54,83 @@ static size_t get_section_size(const FLEObject& obj, const string& name, const F
     return sec.data.size();
 }
 
+static void collect_defined_undefined(
+    const vector<FLEObject>& objs,
+    unordered_set<string>& defined,
+    unordered_set<string>& undefined)
+{
+    for (const auto& obj : objs) {
+        for (const auto& sym : obj.symbols) {
+            if (sym.type == SymbolType::LOCAL) {
+                continue;
+            }
+            if (sym.section.empty()) {
+                undefined.insert(sym.name);
+            } else {
+                defined.insert(sym.name);
+            }
+        }
+    }
+}
+
+static vector<FLEObject> select_archive_members(const vector<FLEObject>& all_objects) {
+    vector<FLEObject> selected;
+    vector<const FLEObject*> archives;
+
+    for (const auto& obj : all_objects) {
+        if (obj.type == ".ar") {
+            archives.push_back(&obj);
+        } else {
+            selected.push_back(obj);
+        }
+    }
+
+    unordered_set<string> selected_member_ids;
+    bool changed = true;
+    while (changed) {
+        changed = false;
+
+        unordered_set<string> defined;
+        unordered_set<string> undefined;
+        collect_defined_undefined(selected, defined, undefined);
+        for (const auto& name : defined) {
+            undefined.erase(name);
+        }
+        if (undefined.empty()) {
+            break;
+        }
+
+        for (const auto* archive : archives) {
+            for (size_t i = 0; i < archive->members.size(); ++i) {
+                const auto& member = archive->members[i];
+                string member_id = archive->name + "::" + member.name + "#" + to_string(i);
+                if (selected_member_ids.count(member_id)) {
+                    continue;
+                }
+
+                bool provides = false;
+                for (const auto& sym : member.symbols) {
+                    if (sym.type == SymbolType::LOCAL || sym.section.empty()) {
+                        continue;
+                    }
+                    if (undefined.count(sym.name)) {
+                        provides = true;
+                        break;
+                    }
+                }
+
+                if (provides) {
+                    selected.push_back(member);
+                    selected_member_ids.insert(member_id);
+                    changed = true;
+                }
+            }
+        }
+    }
+
+    return selected;
+}
+
 /* ============================================================
  * Task 2 + 3 + 4 + 5 完整最终版 (修复所有BUG+无超时+测试全过)
  * ✅ 正确流程：统计大小 → 分配地址 → 合并节 → 符号解析 → 重定位 → 生成程序头
@@ -63,6 +141,7 @@ static size_t get_section_size(const FLEObject& obj, const string& name, const F
 FLEObject FLE_ld(const vector<FLEObject>& objects,
                  const LinkerOptions& /*options*/)
 {
+    const vector<FLEObject> objs = select_archive_members(objects);
     FLEObject exe;
     exe.type = ".exe";
     exe.name = "a.out";
@@ -87,7 +166,7 @@ FLEObject FLE_ld(const vector<FLEObject>& objects,
     // ============================================================
     // Pass 1: 第一步【统计】- 遍历所有输入节，计算四大输出节的总大小
     // ============================================================
-    for (const auto& obj : objects) {
+    for (const auto& obj : objs) {
         for (const auto& [sec_name, sec] : obj.sections) {
             string target;
             if (str_starts_with(sec_name, ".text")) target = ".text";
@@ -123,7 +202,7 @@ FLEObject FLE_ld(const vector<FLEObject>& objects,
     // ============================================================
     // Pass 3: 第三步【合并】- 合并所有输入节到输出节，记录映射关系
     // ============================================================
-    for (const auto& obj : objects) {
+    for (const auto& obj : objs) {
         for (const auto& [sec_name, sec] : obj.sections) {
             string target;
             if (str_starts_with(sec_name, ".text")) target = ".text";
@@ -155,7 +234,7 @@ FLEObject FLE_ld(const vector<FLEObject>& objects,
     // Pass 4: 符号解析与决议 (完全复用你的正确逻辑，一行未改！)
     // ============================================================
     map<string, ResolvedSymbol> symtab;
-    for (const auto& obj : objects) {
+    for (const auto& obj : objs) {
         for (const auto& sym : obj.symbols) {
             if (sym.section.empty()) continue;
             if (!in2out.count({obj.name, sym.section})) continue;
@@ -209,7 +288,7 @@ FLEObject FLE_ld(const vector<FLEObject>& objects,
     // Pass 5: 重定位处理 (你的核心公式完全正确，仅适配地址映射)
     // R_32/32S/PC32/64 全部支持，无任何修改
     // ============================================================
-    for (const auto& obj : objects) {
+    for (const auto& obj : objs) {
         for (const auto& [sec_name, sec] : obj.sections) {
             if (!in2out.count({obj.name, sec_name})) continue;
             auto [target_sec, sec_off] = in2out[{obj.name, sec_name}];
