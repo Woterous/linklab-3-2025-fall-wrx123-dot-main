@@ -254,9 +254,17 @@ FLEObject FLE_ld(const vector<FLEObject>& objects,
     // Pass 6: 生成程序头 (Task5核心要求，一对一映射，权限暂时rwx)
     // ============================================================
     for (const auto& [s, sec] : exe.sections) {
+        uint32_t flags = PHF::R | PHF::W | PHF::X;
+        if (str_starts_with(s, ".text")) {
+            flags = PHF::R | PHF::X;
+        } else if (str_starts_with(s, ".rodata")) {
+            flags = static_cast<uint32_t>(PHF::R);
+        } else if (str_starts_with(s, ".data") || str_starts_with(s, ".bss")) {
+            flags = PHF::R | PHF::W;
+        }
         exe.phdrs.push_back({
             s, sec_vaddr[s], sec_total_size[s],
-            PHF::R | PHF::W | PHF::X // Task5要求：所有段暂时rwx
+            flags
         });
     }
 
