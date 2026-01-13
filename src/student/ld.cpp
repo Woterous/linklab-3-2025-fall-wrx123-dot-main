@@ -35,6 +35,24 @@ static bool str_starts_with(const string& s, const string& prefix) {
     return s.substr(0, prefix.length()) == prefix;
 }
 
+static size_t align_up(size_t value, size_t align) {
+    return (value + align - 1) / align * align;
+}
+
+static const SectionHeader* find_shdr(const FLEObject& obj, const string& name) {
+    for (const auto& shdr : obj.shdrs) {
+        if (shdr.name == name) return &shdr;
+    }
+    return nullptr;
+}
+
+static size_t get_section_size(const FLEObject& obj, const string& name, const FLESection& sec) {
+    const SectionHeader* shdr = find_shdr(obj, name);
+    if (!shdr) return sec.data.size();
+    if (shdr->size > 0) return shdr->size;
+    return sec.data.size();
+}
+
 /* ============================================================
  * Task 2 + 3 + 4 + 5 完整最终版 (修复所有BUG+无超时+测试全过)
  * ✅ 正确流程：统计大小 → 分配地址 → 合并节 → 符号解析 → 重定位 → 生成程序头
@@ -77,7 +95,7 @@ FLEObject FLE_ld(const vector<FLEObject>& objects,
             else if (str_starts_with(sec_name, ".data")) target = ".data";
             else if (str_starts_with(sec_name, ".bss")) target = ".bss";
             else continue;
-            sec_total_size[target] += sec.data.size();
+            sec_total_size[target] += get_section_size(obj, sec_name, sec);
         }
     }
 
@@ -86,15 +104,19 @@ FLEObject FLE_ld(const vector<FLEObject>& objects,
     // ============================================================
     size_t curr_addr = LOAD_BASE;
     // 严格按顺序分配：text → rodata → data → bss，地址绝对不重叠
+    curr_addr = align_up(curr_addr, PAGE_SIZE);
     sec_vaddr[".text"] = curr_addr;
     curr_addr += sec_total_size[".text"];
 
+    curr_addr = align_up(curr_addr, PAGE_SIZE);
     sec_vaddr[".rodata"] = curr_addr;
     curr_addr += sec_total_size[".rodata"];
 
+    curr_addr = align_up(curr_addr, PAGE_SIZE);
     sec_vaddr[".data"] = curr_addr;
     curr_addr += sec_total_size[".data"];
 
+    curr_addr = align_up(curr_addr, PAGE_SIZE);
     sec_vaddr[".bss"] = curr_addr;
     curr_addr += sec_total_size[".bss"];
 
@@ -110,12 +132,15 @@ FLEObject FLE_ld(const vector<FLEObject>& objects,
             else if (str_starts_with(sec_name, ".bss")) target = ".bss";
             else continue;
 
+            size_t sec_size = get_section_size(obj, sec_name, sec);
             // 记录当前输入节的映射关系
             in2out[{obj.name, sec_name}] = {target, sec_write_off[target]};
-            // 合并数据到输出节
-            out_secs[target].data.insert(out_secs[target].data.end(), sec.data.begin(), sec.data.end());
+            // 合并数据到输出节（.bss 不写入文件数据）
+            if (target != ".bss") {
+                out_secs[target].data.insert(out_secs[target].data.end(), sec.data.begin(), sec.data.end());
+            }
             // 更新写入偏移
-            sec_write_off[target] += sec.data.size();
+            sec_write_off[target] += sec_size;
         }
     }
 
@@ -230,7 +255,7 @@ FLEObject FLE_ld(const vector<FLEObject>& objects,
     // ============================================================
     for (const auto& [s, sec] : exe.sections) {
         exe.phdrs.push_back({
-            s, sec_vaddr[s], sec.data.size(),
+            s, sec_vaddr[s], sec_total_size[s],
             PHF::R | PHF::W | PHF::X // Task5要求：所有段暂时rwx
         });
     }
